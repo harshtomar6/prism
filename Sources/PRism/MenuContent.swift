@@ -5,6 +5,10 @@ import AppKit
 struct MenuContent: View {
     @ObservedObject var store: PRStore
 
+    /// When false, the list renders as a plain VStack instead of a ScrollView.
+    /// Used for static snapshots — ImageRenderer does not rasterize ScrollView content.
+    var scrollable: Bool = true
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -15,18 +19,14 @@ struct MenuContent: View {
                 errorView(error)
             } else if store.authored.isEmpty && store.committed.isEmpty {
                 emptyView
+            } else if scrollable {
+                ScrollView { list }
+                    // A window-style MenuBarExtra self-sizes to content, but a ScrollView
+                    // has zero ideal height and collapses to nothing. Give it a definite
+                    // height from the row count, capped so long lists scroll.
+                    .frame(height: listHeight)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        section(title: "Created by me", prs: store.authored)
-                        section(title: "Committed to", prs: store.committed)
-                    }
-                    .padding(.vertical, 8)
-                }
-                // A window-style MenuBarExtra self-sizes to content, but a ScrollView
-                // has zero ideal height and collapses to nothing. Give it a definite
-                // height from the row count, capped so long lists scroll.
-                .frame(height: listHeight)
+                list
             }
 
             Divider()
@@ -34,6 +34,14 @@ struct MenuContent: View {
             footer
         }
         .frame(width: 380)
+    }
+
+    private var list: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            section(title: "Created by me", prs: store.authored)
+            section(title: "Committed to", prs: store.committed)
+        }
+        .padding(.vertical, 8)
     }
 
     /// Definite height for the scrollable list, derived from row count and capped.
@@ -108,6 +116,7 @@ struct MenuContent: View {
                 Task { await store.refresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
             .help("Refresh now")
@@ -116,6 +125,7 @@ struct MenuContent: View {
                 NSApplication.shared.terminate(nil)
             } label: {
                 Image(systemName: "power")
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
             .help("Quit")

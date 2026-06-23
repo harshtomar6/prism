@@ -4,7 +4,24 @@ A tiny macOS menu bar app that lists the open GitHub pull requests you **created
 
 Built with SwiftUI's `MenuBarExtra`. No tokens to manage: it reuses your existing [`gh` CLI](https://cli.github.com/) authentication.
 
-<!-- Add a screenshot here once you have one: ![PRism](docs/screenshot.png) -->
+<p align="center">
+  <img src="docs/screenshot.png" alt="PRism dropdown showing PRs you created and committed to" width="320">
+</p>
+
+## The problem
+
+Your open PRs are scattered. Some you opened; others you pushed commits to but
+someone else owns. GitHub's "Pull requests" page mixes in everything you're
+merely mentioned or assigned on, and you have to leave your work, open a browser,
+and scan a noisy list just to answer *"what's still open on me?"*
+
+It's easy to lose track — a PR sits unreviewed for days, or a branch you
+contributed to is ready to merge and nobody pinged you.
+
+**PRism keeps that answer in your menu bar.** A glanceable count badge tells you
+how many PRs need your attention; one click shows them grouped by how you're
+involved — *Created by me* vs *Committed to* — with the noise (comments,
+mentions, assignments-only) filtered out. Click any row to jump straight to it.
 
 ## Features
 
