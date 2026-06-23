@@ -26,20 +26,30 @@ mentions, assignments-only) filtered out. Click any row to jump straight to it.
 ## Features
 
 - 🔺 Lives in the menu bar with a live count badge
+- 👀 **Needs my review** — open PRs where your review is requested
 - 📝 **Created by me** — open PRs you authored
 - 🔨 **Committed to** — open PRs where your commits appear (even if you didn't open them)
+- 🟢 **CI status** at a glance — green / red / pending dot per PR
+- 🏷️ **Review state** — `APPROVED` / `CHANGES` badges, plus a merge-conflict warning
+- 🔵 **Unread dots** — highlights PRs with new activity since you last looked
+- 🗂️ **Open all** in the browser with one click
 - 🔄 Auto-refreshes every 3 minutes, plus a manual refresh button
 - 🖱️ Click any PR to open it in your browser
 - 🚫 No Dock icon, no clutter — pure menu bar agent
 
 ## How it works
 
-PRism shells out to the `gh` CLI and runs a single GraphQL search for PRs that
-involve you, then classifies each one locally:
+PRism shells out to the `gh` CLI and runs three lightweight GraphQL calls
+(GitHub's cost analyzer rejects the equivalent single mega-query), then
+classifies each PR locally:
 
+- review requested from you → *Needs my review*
 - **author == you** → *Created by me*
 - **your login among the commit authors** → *Committed to*
 - involved only via comment / mention / assignment → ignored
+
+Each displayed PR is then enriched with its CI rollup, review decision, and
+mergeability in one batched call.
 
 Because it uses `gh`, there are no API tokens stored in the app — it relies on
 whatever account you've authenticated with `gh auth login`.

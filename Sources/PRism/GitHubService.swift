@@ -23,41 +23,57 @@ enum GitHubError: LocalizedError {
 
 /// Fetches open pull requests via the `gh` CLI.
 ///
-/// Authored PRs and committed-to PRs are derived from a single GraphQL search
-/// over `involves:<login>`, then classified locally by inspecting each PR's
-/// author and commit-author logins.
+/// GitHub's GraphQL cost analyzer rejects (502/504) a single request that runs
+/// two `commits`-bearing searches plus `statusCheckRollup`. So the work is split
+/// into three lighter calls:
+///   A. `involves:@me` search with commit authors (+ `viewer.login`)
+///   B. `review-requested:@me` search (lightweight, no commits)
+///   C. batched `statusCheckRollup` for only the PRs that will be displayed
 struct GitHubService {
 
-    /// The GraphQL query. `$q` carries the search string so the login is never
-    /// interpolated into the query body.
-    private static let searchQuery = """
-    query($q: String!) {
-      viewer { login }
-      search(query: $q, type: ISSUE, first: 60) {
-        nodes {
-          ... on PullRequest {
-            id
-            number
-            title
-            url
-            isDraft
-            updatedAt
-            repository { nameWithOwner }
-            author { login }
-            commits(first: 100) {
-              nodes {
-                commit {
-                  authors(first: 10) {
-                    nodes { user { login } }
-                  }
-                }
-              }
+    /// Shared PR field selection minus the expensive commit/rollup connections.
+    private static let baseFields = """
+    id number title url isDraft updatedAt reviewDecision mergeable
+    repository { nameWithOwner } author { login }
+    """
+
+    private static var involvesQuery: String {
+        """
+        query {
+          viewer { login }
+          search(query: "is:open is:pr involves:@me archived:false", type: ISSUE, first: 50) {
+            nodes { ... on PullRequest {
+              \(baseFields)
+              commits(last: 30) { nodes { commit { authors(first: 5) { nodes { user { login } } } } } }
+            } }
+          }
+        }
+        """
+    }
+
+    private static var reviewQuery: String {
+        """
+        query {
+          search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 30) {
+            nodes { ... on PullRequest { \(baseFields) } }
+          }
+        }
+        """
+    }
+
+    private static func rollupQuery(ids: [String]) -> String {
+        let array = ids.map { "\"\($0)\"" }.joined(separator: ",")
+        return """
+        query {
+          nodes(ids: [\(array)]) {
+            ... on PullRequest {
+              id
+              commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
             }
           }
         }
-      }
+        """
     }
-    """
 
     /// Resolve the path to the `gh` executable, honouring common install locations.
     private func resolveGhPath() -> String? {
@@ -65,68 +81,47 @@ struct GitHubService {
         for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
             return path
         }
-        // Fall back to PATH lookup via /usr/bin/env.
         return "env"
     }
 
-    /// Fetch and classify all relevant open PRs.
+    /// Fetch and classify all relevant open PRs, enriched with CI status.
     func fetchPullRequests() async throws -> [PullRequest] {
         let ghPath = resolveGhPath() ?? "gh"
-
-        // First resolve the viewer login so we can scope the search to involves:<login>.
-        let login = try await viewerLogin(ghPath: ghPath)
-        let searchString = "is:open is:pr involves:\(login) archived:false"
-
-        let arguments: [String]
-        if ghPath == "env" {
-            arguments = ["gh", "api", "graphql", "-f", "query=\(Self.searchQuery)", "-F", "q=\(searchString)"]
-        } else {
-            arguments = ["api", "graphql", "-f", "query=\(Self.searchQuery)", "-F", "q=\(searchString)"]
-        }
-
-        let output = try await run(executable: ghPath, arguments: arguments)
-        return try parse(output, login: login)
-    }
-
-    /// Resolve the authenticated user's login.
-    private func viewerLogin(ghPath: String) async throws -> String {
-        let args: [String]
-        if ghPath == "env" {
-            args = ["gh", "api", "graphql", "-f", "query={ viewer { login } }"]
-        } else {
-            args = ["api", "graphql", "-f", "query={ viewer { login } }"]
-        }
-        let output = try await run(executable: ghPath, arguments: args)
-        guard
-            let data = output.data(using: .utf8),
-            let root = try? JSONDecoder().decode(ViewerResponse.self, from: data)
-        else {
-            throw GitHubError.decodeFailed("viewer login")
-        }
-        return root.data.viewer.login
-    }
-
-    /// Decode the search payload and classify each PR.
-    private func parse(_ output: String, login: String) throws -> [PullRequest] {
-        guard let data = output.data(using: .utf8) else {
-            throw GitHubError.decodeFailed("empty output")
-        }
-
-        let decoder = JSONDecoder()
         let formatter = ISO8601DateFormatter()
 
-        let root: SearchResponse
-        do {
-            root = try decoder.decode(SearchResponse.self, from: data)
-        } catch {
-            throw GitHubError.decodeFailed(String(describing: error))
+        // A + B run concurrently — neither depends on the other.
+        async let involvesRaw = runGraphQL(ghPath: ghPath, query: Self.involvesQuery)
+        async let reviewRaw = runGraphQL(ghPath: ghPath, query: Self.reviewQuery)
+
+        let involves = try decode(InvolvesResponse.self, from: try await involvesRaw)
+        let review = try decode(ReviewResponse.self, from: try await reviewRaw)
+        let login = involves.data.viewer.login
+
+        func make(_ node: PRNode, relation: PullRequest.Relation) -> PullRequest? {
+            guard let id = node.id, let number = node.number else { return nil }
+            let updated = node.updatedAt.flatMap { formatter.date(from: $0) } ?? Date.distantPast
+            return PullRequest(
+                id: id, number: number, title: node.title ?? "(no title)",
+                url: node.url ?? "", repo: node.repository?.nameWithOwner ?? "",
+                author: node.author?.login ?? "", isDraft: node.isDraft ?? false,
+                updatedAt: updated, relation: relation,
+                checks: .none, // filled in by the rollup pass
+                review: ReviewState(decision: node.reviewDecision),
+                merge: MergeState(mergeable: node.mergeable)
+            )
         }
 
+        var reviewIDs = Set<String>()
         var results: [PullRequest] = []
-        for node in root.data.search.nodes {
-            // Inline fragment fields are absent for non-PR nodes; skip those.
-            guard let id = node.id, let number = node.number else { continue }
 
+        for node in review.data.search.nodes {
+            guard let pr = make(node, relation: .reviewRequested) else { continue }
+            reviewIDs.insert(pr.id)
+            results.append(pr)
+        }
+
+        for node in involves.data.search.nodes {
+            guard let id = node.id, !reviewIDs.contains(id) else { continue }
             let authorLogin = node.author?.login ?? ""
             let relation: PullRequest.Relation
             if authorLogin.caseInsensitiveCompare(login) == .orderedSame {
@@ -134,28 +129,55 @@ struct GitHubService {
             } else if node.committed(by: login) {
                 relation = .committed
             } else {
-                // Involved via comment/mention/assignment only — not requested.
-                continue
+                continue // involved via comment/mention/assignment only
             }
+            if let pr = make(node, relation: relation) { results.append(pr) }
+        }
 
-            let updated = node.updatedAt.flatMap { formatter.date(from: $0) } ?? Date.distantPast
-
-            results.append(
-                PullRequest(
-                    id: id,
-                    number: number,
-                    title: node.title ?? "(no title)",
-                    url: node.url ?? "",
-                    repo: node.repository?.nameWithOwner ?? "",
-                    author: authorLogin,
-                    isDraft: node.isDraft ?? false,
-                    updatedAt: updated,
-                    relation: relation
-                )
-            )
+        // C. Enrich the displayed PRs with CI status in one batched call.
+        let checks = try await fetchRollups(ghPath: ghPath, ids: results.map(\.id))
+        results = results.map { pr in
+            var copy = pr
+            if let state = checks[pr.id] { copy.checks = state }
+            return copy
         }
 
         return results.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// Batched CI rollup lookup. Returns a map of PR id -> CheckState.
+    private func fetchRollups(ghPath: String, ids: [String]) async throws -> [String: CheckState] {
+        guard !ids.isEmpty else { return [:] }
+        // nodes(ids:) accepts up to 100; chunk to stay within bounds.
+        var map: [String: CheckState] = [:]
+        for chunk in stride(from: 0, to: ids.count, by: 100).map({ Array(ids[$0..<min($0 + 100, ids.count)]) }) {
+            let raw = try await runGraphQL(ghPath: ghPath, query: Self.rollupQuery(ids: chunk))
+            let decoded = try decode(RollupResponse.self, from: raw)
+            for node in decoded.data.nodes {
+                guard let node, let id = node.id else { continue }
+                map[id] = CheckState(rollup: node.rollupState)
+            }
+        }
+        return map
+    }
+
+    // MARK: - gh invocation
+
+    private func runGraphQL(ghPath: String, query: String) async throws -> String {
+        let base = ["api", "graphql", "-f", "query=\(query)"]
+        let args = (ghPath == "env" ? ["gh"] : []) + base
+        return try await run(executable: ghPath, arguments: args)
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from output: String) throws -> T {
+        guard let data = output.data(using: .utf8) else {
+            throw GitHubError.decodeFailed("empty output")
+        }
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw GitHubError.decodeFailed(String(describing: error))
+        }
     }
 
     /// Run an executable and return stdout, mapping failures to `GitHubError`.
@@ -173,7 +195,6 @@ struct GitHubService {
             }
             process.arguments = arguments
 
-            // Ensure Homebrew paths are visible when launched outside a shell.
             var environment = ProcessInfo.processInfo.environment
             let path = environment["PATH"] ?? ""
             environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + path
@@ -184,8 +205,6 @@ struct GitHubService {
             process.standardOutput = stdout
             process.standardError = stderr
 
-            // Accumulate output as it streams so the child never blocks on a full pipe.
-            // A serial queue serialises mutation of the buffers across handler callbacks.
             let bufferQueue = DispatchQueue(label: "github.process.buffers")
             var outData = Data()
             var errData = Data()
@@ -200,7 +219,6 @@ struct GitHubService {
             }
 
             process.terminationHandler = { proc in
-                // Tear down handlers, then settle the buffer queue so all chunks are in.
                 stdout.fileHandleForReading.readabilityHandler = nil
                 stderr.fileHandleForReading.readabilityHandler = nil
 
@@ -232,39 +250,66 @@ struct GitHubService {
 
 // MARK: - Response models
 
-private struct ViewerResponse: Decodable {
-    struct DataBlock: Decodable { let viewer: Viewer }
+private struct InvolvesResponse: Decodable {
+    struct DataBlock: Decodable {
+        let viewer: Viewer
+        let search: Search
+    }
     struct Viewer: Decodable { let login: String }
+    struct Search: Decodable { let nodes: [PRNode] }
     let data: DataBlock
 }
 
-private struct SearchResponse: Decodable {
+private struct ReviewResponse: Decodable {
     struct DataBlock: Decodable { let search: Search }
-    struct Search: Decodable { let nodes: [Node] }
+    struct Search: Decodable { let nodes: [PRNode] }
+    let data: DataBlock
+}
 
-    struct Node: Decodable {
-        let id: String?
-        let number: Int?
-        let title: String?
-        let url: String?
-        let isDraft: Bool?
-        let updatedAt: String?
-        let repository: Repository?
-        let author: Author?
-        let commits: Commits?
+private struct RollupResponse: Decodable {
+    struct DataBlock: Decodable { let nodes: [RollupNode?] }
+    let data: DataBlock
+}
 
-        /// Whether the given login appears among any commit's authors.
-        func committed(by login: String) -> Bool {
-            guard let nodes = commits?.nodes else { return false }
-            for entry in nodes {
-                for authorNode in entry.commit?.authors?.nodes ?? [] {
-                    if authorNode.user?.login?.caseInsensitiveCompare(login) == .orderedSame {
-                        return true
-                    }
+private struct RollupNode: Decodable {
+    let id: String?
+    let commits: Commits?
+
+    var rollupState: String? {
+        commits?.nodes.first?.commit?.statusCheckRollup?.state
+    }
+
+    struct Commits: Decodable { let nodes: [CommitNode] }
+    struct CommitNode: Decodable { let commit: Commit? }
+    struct Commit: Decodable { let statusCheckRollup: Rollup? }
+    struct Rollup: Decodable { let state: String? }
+}
+
+/// Decoded PR node shared by the involves and review searches.
+private struct PRNode: Decodable {
+    let id: String?
+    let number: Int?
+    let title: String?
+    let url: String?
+    let isDraft: Bool?
+    let updatedAt: String?
+    let reviewDecision: String?
+    let mergeable: String?
+    let repository: Repository?
+    let author: Author?
+    let commits: Commits?
+
+    /// Whether the given login appears among any fetched commit's authors.
+    func committed(by login: String) -> Bool {
+        guard let nodes = commits?.nodes else { return false }
+        for entry in nodes {
+            for authorNode in entry.commit?.authors?.nodes ?? [] {
+                if authorNode.user?.login?.caseInsensitiveCompare(login) == .orderedSame {
+                    return true
                 }
             }
-            return false
         }
+        return false
     }
 
     struct Repository: Decodable { let nameWithOwner: String }
@@ -275,6 +320,4 @@ private struct SearchResponse: Decodable {
     struct Authors: Decodable { let nodes: [AuthorNode] }
     struct AuthorNode: Decodable { let user: User? }
     struct User: Decodable { let login: String? }
-
-    let data: DataBlock
 }

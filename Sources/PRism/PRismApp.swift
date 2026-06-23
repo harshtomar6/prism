@@ -129,7 +129,7 @@ private struct PreviewShowcase: View {
                 // Faux menu bar item, to convey where the app lives.
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.triangle.pull")
-                    Text("5")
+                    Text("\(store.totalCount)")
                 }
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white)
@@ -138,7 +138,7 @@ private struct PreviewShowcase: View {
                 .background(.white.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                MenuContent(store: store, scrollable: false)
+                MenuContent(store: store, scrollable: false, clearsUnreadOnAppear: false)
                     .environment(\.colorScheme, .light)
                     .background(Color(red: 0.97, green: 0.97, blue: 0.98))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -150,7 +150,7 @@ private struct PreviewShowcase: View {
             }
             .padding(28)
         }
-        .frame(width: 440, height: 540)
+        .frame(width: 440, height: 660)
     }
 }
 #endif
