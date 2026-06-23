@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import Combine
 
 /// Observable state backing the menu bar UI. Owns refresh scheduling, the
 /// last-known set of pull requests, and per-PR "seen" tracking for unread dots.
@@ -16,6 +17,26 @@ final class PRStore: ObservableObject {
     private let service = GitHubService()
     private var timer: Timer?
     private var started = false
+
+    /// Unfiltered review PRs; `reviewRequested` is the filtered view of this.
+    private var rawReview: [PullRequest] = []
+    /// Whether the last fetch included changed-path data for review PRs.
+    private var reviewFilesLoaded = false
+
+    private var settings: AppSettings?
+    private var cancellables = Set<AnyCancellable>()
+
+    /// Wire up settings so filter changes re-apply (refetching files if needed).
+    func attach(_ settings: AppSettings) {
+        guard self.settings == nil else { return }
+        self.settings = settings
+        settings.objectWillChange
+            .sink { [weak self] in
+                // objectWillChange fires before the value updates; defer a tick.
+                DispatchQueue.main.async { self?.onSettingsChanged() }
+            }
+            .store(in: &cancellables)
+    }
 
     /// Poll interval in seconds.
     private let refreshInterval: TimeInterval = 180
@@ -56,14 +77,34 @@ final class PRStore: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
 
+        let needFiles = settings?.hasPathFilters ?? false
         do {
-            let prs = markUnread(try await service.fetchPullRequests())
-            reviewRequested = prs.filter { $0.relation == .reviewRequested }
+            let prs = markUnread(try await service.fetchPullRequests(reviewPathFiltering: needFiles))
+            reviewFilesLoaded = needFiles
+            rawReview = prs.filter { $0.relation == .reviewRequested }
             authored = prs.filter { $0.relation == .authored }
             committed = prs.filter { $0.relation == .committed }
+            applyReviewFilter()
             lastUpdated = Date()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Re-derive the visible review list from `rawReview` using current settings.
+    private func applyReviewFilter() {
+        if let settings {
+            reviewRequested = rawReview.filter(settings.keepReview)
+        } else {
+            reviewRequested = rawReview
+        }
+    }
+
+    /// Settings changed: re-filter immediately; refetch if path data is now needed.
+    private func onSettingsChanged() {
+        applyReviewFilter()
+        if (settings?.hasPathFilters ?? false) && !reviewFilesLoaded {
+            Task { await refresh() }
         }
     }
 

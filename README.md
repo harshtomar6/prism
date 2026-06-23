@@ -33,6 +33,7 @@ mentions, assignments-only) filtered out. Click any row to jump straight to it.
 - 🏷️ **Review state** — `APPROVED` / `CHANGES` badges, plus a merge-conflict warning
 - 🔵 **Unread dots** — highlights PRs with new activity since you last looked
 - 🗂️ **Open all** in the browser with one click
+- 🔍 **Filters** — scope *Needs my review* by repository and by changed folder/path
 - 🔄 Auto-refreshes every 3 minutes, plus a manual refresh button
 - 🖱️ Click any PR to open it in your browser
 - 🚫 No Dock icon, no clutter — pure menu bar agent
@@ -53,6 +54,25 @@ mergeability in one batched call.
 
 Because it uses `gh`, there are no API tokens stored in the app — it relies on
 whatever account you've authenticated with `gh auth login`.
+
+## Filtering your review list
+
+If your *Needs my review* queue is noisy, open the filter panel (the slider icon
+in the header) and scope it down:
+
+<p align="center">
+  <img src="docs/settings.png" alt="PRism filter panel" width="320">
+</p>
+
+- **Repositories** — only show review PRs from matching repos (substring match,
+  e.g. `marketplace-backend`).
+- **Changed folders / paths** — only show review PRs that touch a matching path
+  (e.g. `apps/ad-publishing`).
+
+A PR must satisfy every active filter *type* (repo **and** path); within a type,
+matching any entry is enough. Path filtering fetches each review PR's changed
+files, so it's only requested when a path filter is set. Filters persist across
+launches.
 
 ## Requirements
 

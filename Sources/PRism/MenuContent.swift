@@ -4,6 +4,7 @@ import AppKit
 /// The dropdown shown when the menu bar item is clicked.
 struct MenuContent: View {
     @ObservedObject var store: PRStore
+    @ObservedObject var settings: AppSettings
 
     /// When false, the list renders as a plain VStack instead of a ScrollView.
     /// Used for static snapshots — ImageRenderer does not rasterize ScrollView content.
@@ -11,6 +12,8 @@ struct MenuContent: View {
 
     /// When false, opening the menu does not clear unread markers (snapshots).
     var clearsUnreadOnAppear: Bool = true
+
+    @State private var showingSettings = false
 
     private var isEmpty: Bool {
         store.reviewRequested.isEmpty && store.authored.isEmpty && store.committed.isEmpty
@@ -22,7 +25,9 @@ struct MenuContent: View {
 
             Divider()
 
-            if let error = store.errorMessage {
+            if showingSettings {
+                SettingsPanel(settings: settings, scrollable: scrollable)
+            } else if let error = store.errorMessage {
                 errorView(error)
             } else if isEmpty {
                 emptyView
@@ -47,7 +52,8 @@ struct MenuContent: View {
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 12) {
-            section(title: "Needs my review", prs: store.reviewRequested)
+            section(title: "Needs my review", prs: store.reviewRequested,
+                    filtered: settings.hasAnyReviewFilter)
             section(title: "Created by me", prs: store.authored)
             section(title: "Committed to", prs: store.committed)
         }
@@ -66,27 +72,43 @@ struct MenuContent: View {
     // MARK: - Sections
 
     private var header: some View {
-        HStack {
-            Text("Open Pull Requests")
+        HStack(spacing: 8) {
+            Text(showingSettings ? "Filters" : "Open Pull Requests")
                 .font(.headline)
             Spacer()
-            if store.isLoading {
+            if store.isLoading && !showingSettings {
                 ProgressView()
                     .controlSize(.small)
             }
+            Button {
+                showingSettings.toggle()
+            } label: {
+                Image(systemName: showingSettings ? "chevron.left" : "slider.horizontal.3")
+                    .foregroundStyle(showingSettings ? Color.accentColor : .secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(showingSettings ? "Back to PRs" : "Filters")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
     }
 
     @ViewBuilder
-    private func section(title: String, prs: [PullRequest]) -> some View {
+    private func section(title: String, prs: [PullRequest], filtered: Bool = false) -> some View {
         if !prs.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(title) (\(prs.count))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 14)
+                HStack(spacing: 4) {
+                    Text("\(title) (\(prs.count))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if filtered {
+                        Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.accentColor)
+                            .help("Filtered")
+                    }
+                }
+                .padding(.horizontal, 14)
 
                 ForEach(prs) { pr in
                     PRRow(pr: pr)
@@ -123,7 +145,7 @@ struct MenuContent: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if !isEmpty {
+            if !isEmpty && !showingSettings {
                 Button {
                     store.openAll()
                 } label: {
@@ -154,6 +176,126 @@ struct MenuContent: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+}
+
+/// Filter configuration for the "Needs my review" list.
+struct SettingsPanel: View {
+    @ObservedObject var settings: AppSettings
+    var scrollable: Bool = true
+    /// When false, hides the text-field editors (used for clean snapshots).
+    var interactive: Bool = true
+
+    var body: some View {
+        let content = VStack(alignment: .leading, spacing: 16) {
+            Text("Show **Needs my review** PRs only when they match:")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            FilterListEditor(
+                title: "Repositories",
+                systemImage: "folder",
+                placeholder: "e.g. marketplace-backend",
+                items: settings.reviewRepoFilters,
+                interactive: interactive,
+                onAdd: settings.addRepo,
+                onRemove: settings.removeRepo
+            )
+
+            FilterListEditor(
+                title: "Changed folders / paths",
+                systemImage: "doc.text.magnifyingglass",
+                placeholder: "e.g. apps/ad-publishing",
+                items: settings.reviewPathFilters,
+                interactive: interactive,
+                onAdd: settings.addPath,
+                onRemove: settings.removePath
+            )
+
+            Text(footnote)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        if scrollable {
+            ScrollView { content }.frame(height: 340)
+        } else {
+            content
+        }
+    }
+
+    private var footnote: String {
+        var parts = ["A PR must match every active filter type (repo AND path); within a type, any match counts."]
+        if settings.hasPathFilters {
+            parts.append("Path filtering fetches each review PR's changed files.")
+        }
+        return parts.joined(separator: " ")
+    }
+}
+
+/// An editable list of string filters: add via text field, remove via the chip's ✕.
+private struct FilterListEditor: View {
+    let title: String
+    let systemImage: String
+    let placeholder: String
+    let items: [String]
+    var interactive: Bool = true
+    let onAdd: (String) -> Void
+    let onRemove: (String) -> Void
+
+    @State private var draft = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.bold())
+
+            if interactive {
+                HStack(spacing: 6) {
+                    TextField(placeholder, text: $draft)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(commit)
+                    Button("Add", action: commit)
+                        .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+
+            if items.isEmpty {
+                Text("No filters — all repos/paths shown.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(items, id: \.self) { item in
+                    HStack {
+                        Text(item)
+                            .font(.system(size: 12, design: .monospaced))
+                            .lineLimit(1)
+                        Spacer()
+                        Button {
+                            onRemove(item)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.secondary.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                }
+            }
+        }
+    }
+
+    private func commit() {
+        let value = draft.trimmingCharacters(in: .whitespaces)
+        guard !value.isEmpty else { return }
+        onAdd(value)
+        draft = ""
     }
 }
 

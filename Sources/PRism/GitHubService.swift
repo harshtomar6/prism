@@ -75,6 +75,20 @@ struct GitHubService {
         """
     }
 
+    private static func filesQuery(ids: [String]) -> String {
+        let array = ids.map { "\"\($0)\"" }.joined(separator: ",")
+        return """
+        query {
+          nodes(ids: [\(array)]) {
+            ... on PullRequest {
+              id
+              files(first: 100) { nodes { path } }
+            }
+          }
+        }
+        """
+    }
+
     /// Resolve the path to the `gh` executable, honouring common install locations.
     private func resolveGhPath() -> String? {
         let candidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
@@ -85,7 +99,10 @@ struct GitHubService {
     }
 
     /// Fetch and classify all relevant open PRs, enriched with CI status.
-    func fetchPullRequests() async throws -> [PullRequest] {
+    ///
+    /// When `reviewPathFiltering` is true, the changed file paths of review PRs
+    /// are also fetched so the UI can filter by folder.
+    func fetchPullRequests(reviewPathFiltering: Bool = false) async throws -> [PullRequest] {
         let ghPath = resolveGhPath() ?? "gh"
         let formatter = ISO8601DateFormatter()
 
@@ -142,6 +159,18 @@ struct GitHubService {
             return copy
         }
 
+        // D. (optional) Fetch changed paths for review PRs to support folder filtering.
+        if reviewPathFiltering {
+            let reviewIDs = results.filter { $0.relation == .reviewRequested }.map(\.id)
+            let paths = try await fetchChangedPaths(ghPath: ghPath, ids: reviewIDs)
+            results = results.map { pr in
+                guard pr.relation == .reviewRequested else { return pr }
+                var copy = pr
+                copy.changedPaths = paths[pr.id] ?? []
+                return copy
+            }
+        }
+
         return results.sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -156,6 +185,21 @@ struct GitHubService {
             for node in decoded.data.nodes {
                 guard let node, let id = node.id else { continue }
                 map[id] = CheckState(rollup: node.rollupState)
+            }
+        }
+        return map
+    }
+
+    /// Batched changed-paths lookup. Returns a map of PR id -> file paths.
+    private func fetchChangedPaths(ghPath: String, ids: [String]) async throws -> [String: [String]] {
+        guard !ids.isEmpty else { return [:] }
+        var map: [String: [String]] = [:]
+        for chunk in stride(from: 0, to: ids.count, by: 100).map({ Array(ids[$0..<min($0 + 100, ids.count)]) }) {
+            let raw = try await runGraphQL(ghPath: ghPath, query: Self.filesQuery(ids: chunk))
+            let decoded = try decode(FilesResponse.self, from: raw)
+            for node in decoded.data.nodes {
+                guard let node, let id = node.id else { continue }
+                map[id] = node.files?.nodes.compactMap { $0.path } ?? []
             }
         }
         return map
@@ -283,6 +327,18 @@ private struct RollupNode: Decodable {
     struct CommitNode: Decodable { let commit: Commit? }
     struct Commit: Decodable { let statusCheckRollup: Rollup? }
     struct Rollup: Decodable { let state: String? }
+}
+
+private struct FilesResponse: Decodable {
+    struct DataBlock: Decodable { let nodes: [FileNode?] }
+    let data: DataBlock
+}
+
+private struct FileNode: Decodable {
+    let id: String?
+    let files: Files?
+    struct Files: Decodable { let nodes: [PathNode] }
+    struct PathNode: Decodable { let path: String? }
 }
 
 /// Decoded PR node shared by the involves and review searches.

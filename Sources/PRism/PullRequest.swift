@@ -72,4 +72,7 @@ struct PullRequest: Identifiable, Hashable {
 
     /// Set by the store: PR has activity newer than the last time the user looked.
     var isUnread: Bool = false
+
+    /// Changed file paths — only populated for review PRs when path filtering is active.
+    var changedPaths: [String] = []
 }

@@ -4,6 +4,7 @@ import AppKit
 @main
 struct PRismApp: App {
     @StateObject private var store = PRStore()
+    @StateObject private var settings = AppSettings()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
@@ -14,7 +15,7 @@ struct PRismApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(store: store)
+            MenuContent(store: store, settings: settings)
         } label: {
             // Icon + count badge in the menu bar. The label renders at launch,
             // so `.task` here is the single entry point for background polling.
@@ -26,7 +27,10 @@ struct PRismApp: App {
             }
             .task {
                 // Skip live polling in preview mode — the showcase uses seeded data.
-                if !AppDelegate.isPreview { store.start() }
+                if !AppDelegate.isPreview {
+                    store.attach(settings)
+                    store.start()
+                }
             }
         }
         .menuBarExtraStyle(.window)
@@ -83,10 +87,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #if DEBUG
     @MainActor
     private func renderShowcase(to path: String) {
-        let store = PRStore()
-        store.seedPreviewData()
+        let content: AnyView
+        if ProcessInfo.processInfo.environment["PRISM_SHOT_MODE"] == "settings" {
+            content = AnyView(SettingsShowcase())
+        } else {
+            let store = PRStore()
+            store.seedPreviewData()
+            content = AnyView(PreviewShowcase(store: store))
+        }
 
-        let renderer = ImageRenderer(content: PreviewShowcase(store: store))
+        let renderer = ImageRenderer(content: content)
         renderer.scale = 2
         guard
             let cgImage = renderer.cgImage
@@ -115,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// real `MenuContent` with seeded sample data on a neutral backdrop.
 private struct PreviewShowcase: View {
     @ObservedObject var store: PRStore
+    @StateObject private var settings = AppSettings()
 
     var body: some View {
         ZStack {
@@ -138,7 +149,7 @@ private struct PreviewShowcase: View {
                 .background(.white.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                MenuContent(store: store, scrollable: false, clearsUnreadOnAppear: false)
+                MenuContent(store: store, settings: settings, scrollable: false, clearsUnreadOnAppear: false)
                     .environment(\.colorScheme, .light)
                     .background(Color(red: 0.97, green: 0.97, blue: 0.98))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -151,6 +162,46 @@ private struct PreviewShowcase: View {
             .padding(28)
         }
         .frame(width: 440, height: 660)
+    }
+}
+
+/// Framed presentation of the settings/filters panel for README screenshots.
+private struct SettingsShowcase: View {
+    @StateObject private var settings = AppSettings.previewSeeded()
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.16, green: 0.17, blue: 0.22), Color(red: 0.09, green: 0.10, blue: 0.14)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Text("Filters").font(.headline)
+                    Spacer()
+                    Image(systemName: "chevron.left").foregroundStyle(Color.accentColor)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+
+                Divider()
+
+                SettingsPanel(settings: settings, scrollable: false, interactive: false)
+            }
+            .frame(width: 380)
+            .environment(\.colorScheme, .light)
+            .background(Color(red: 0.97, green: 0.97, blue: 0.98))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
+            .padding(28)
+        }
+        .frame(width: 440, height: 540)
     }
 }
 #endif
