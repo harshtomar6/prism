@@ -301,9 +301,11 @@ private struct FilterListEditor: View {
 
 /// A single clickable PR row that opens the PR in the browser.
 private struct PRRow: View {
+    private enum CopyTarget { case link, branch }
+
     let pr: PullRequest
     @State private var hovering = false
-    @State private var copied = false
+    @State private var copied: CopyTarget?
 
     var body: some View {
         // The row opens via a tap gesture rather than a Button so the nested copy
@@ -321,7 +323,7 @@ private struct PRRow: View {
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     trailingBadges
-                    copyButton
+                    copyControls
                 }
                 Text("\(pr.repo) #\(pr.number)")
                     .font(.caption2)
@@ -341,30 +343,39 @@ private struct PRRow: View {
         if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
     }
 
-    /// Copy-link button, revealed on hover. Nested `.plain` button so its tap
-    /// does not also trigger the row's open-in-browser action.
+    /// Copy-branch and copy-link buttons, revealed on hover. Each is a `.plain`
+    /// Button so its tap is consumed and does not open the PR.
+    private var copyControls: some View {
+        HStack(spacing: 8) {
+            copyIcon(.branch, symbol: "arrow.triangle.branch", help: "Copy branch name", value: pr.branch)
+            copyIcon(.link, symbol: "doc.on.doc", help: "Copy PR link", value: pr.url)
+        }
+    }
+
     @ViewBuilder
-    private var copyButton: some View {
-        if hovering || copied {
-            Button(action: copyLink) {
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+    private func copyIcon(_ target: CopyTarget, symbol: String, help: String, value: String) -> some View {
+        if (hovering || copied == target) && !value.isEmpty {
+            Button { copy(value, as: target) } label: {
+                Image(systemName: copied == target ? "checkmark" : symbol)
                     .font(.system(size: 11))
-                    .foregroundStyle(copied ? Color.green : .secondary)
+                    .foregroundStyle(copied == target ? Color.green : .secondary)
             }
             .buttonStyle(.plain)
-            .help("Copy PR link")
+            .help(help)
         } else {
             // Reserve width so the title doesn't shift when the button appears.
             Color.clear.frame(width: 13, height: 1)
         }
     }
 
-    private func copyLink() {
-        guard !pr.url.isEmpty else { return }
+    private func copy(_ value: String, as target: CopyTarget) {
+        guard !value.isEmpty else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(pr.url, forType: .string)
-        copied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
+        NSPasteboard.general.setString(value, forType: .string)
+        copied = target
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            if copied == target { copied = nil }
+        }
     }
 
     /// Unread dot + CI status indicator, vertically aligned with the title.

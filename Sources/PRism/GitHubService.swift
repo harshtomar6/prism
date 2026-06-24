@@ -33,7 +33,7 @@ struct GitHubService {
 
     /// Shared PR field selection minus the expensive commit/rollup connections.
     private static let baseFields = """
-    id number title url isDraft updatedAt reviewDecision mergeable
+    id number title url isDraft updatedAt reviewDecision mergeable headRefName
     repository { nameWithOwner } author { login }
     """
 
@@ -120,7 +120,8 @@ struct GitHubService {
             return PullRequest(
                 id: id, number: number, title: node.title ?? "(no title)",
                 url: node.url ?? "", repo: node.repository?.nameWithOwner ?? "",
-                author: node.author?.login ?? "", isDraft: node.isDraft ?? false,
+                author: node.author?.login ?? "", branch: node.headRefName ?? "",
+                isDraft: node.isDraft ?? false,
                 updatedAt: updated, relation: relation,
                 checks: .none, // filled in by the rollup pass
                 review: ReviewState(decision: node.reviewDecision),
@@ -351,6 +352,7 @@ private struct PRNode: Decodable {
     let updatedAt: String?
     let reviewDecision: String?
     let mergeable: String?
+    let headRefName: String?
     let repository: Repository?
     let author: Author?
     let commits: Commits?

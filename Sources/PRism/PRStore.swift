@@ -162,17 +162,17 @@ final class PRStore: ObservableObject {
     func seedPreviewData() {
         started = true // suppress any live fetch
         reviewRequested = [
-            PullRequest(id: "r1", number: 742, title: "Add rate limiting to public API", url: "", repo: "acme/gateway", author: "kim", isDraft: false, updatedAt: Date().addingTimeInterval(-600), relation: .reviewRequested, checks: .success, review: .reviewRequired, merge: .mergeable, isUnread: true),
-            PullRequest(id: "r2", number: 89, title: "Bump Postgres driver to 16.2", url: "", repo: "acme/core", author: "sam", isDraft: false, updatedAt: Date().addingTimeInterval(-9_000), relation: .reviewRequested, checks: .pending, review: .reviewRequired, merge: .mergeable),
+            PullRequest(id: "r1", number: 742, title: "Add rate limiting to public API", url: "", repo: "acme/gateway", author: "kim", branch: "feat/rate-limit", isDraft: false, updatedAt: Date().addingTimeInterval(-600), relation: .reviewRequested, checks: .success, review: .reviewRequired, merge: .mergeable, isUnread: true),
+            PullRequest(id: "r2", number: 89, title: "Bump Postgres driver to 16.2", url: "", repo: "acme/core", author: "sam", branch: "chore/pg-16.2", isDraft: false, updatedAt: Date().addingTimeInterval(-9_000), relation: .reviewRequested, checks: .pending, review: .reviewRequired, merge: .mergeable),
         ]
         authored = [
-            PullRequest(id: "a1", number: 482, title: "Add dark mode tokens to design system", url: "", repo: "acme/web-ui", author: "you", isDraft: false, updatedAt: Date().addingTimeInterval(-1_800), relation: .authored, checks: .failure, review: .changesRequested, merge: .mergeable, isUnread: true),
-            PullRequest(id: "a2", number: 1207, title: "Fix flaky checkout integration test", url: "", repo: "acme/payments", author: "you", isDraft: false, updatedAt: Date().addingTimeInterval(-7_200), relation: .authored, checks: .success, review: .approved, merge: .conflicting),
-            PullRequest(id: "a3", number: 96, title: "Wire up GraphQL pagination for search", url: "", repo: "acme/search-api", author: "you", isDraft: true, updatedAt: Date().addingTimeInterval(-86_400), relation: .authored, checks: .pending, review: .none, merge: .mergeable),
+            PullRequest(id: "a1", number: 482, title: "Add dark mode tokens to design system", url: "", repo: "acme/web-ui", author: "you", branch: "feat/dark-mode-tokens", isDraft: false, updatedAt: Date().addingTimeInterval(-1_800), relation: .authored, checks: .failure, review: .changesRequested, merge: .mergeable, isUnread: true),
+            PullRequest(id: "a2", number: 1207, title: "Fix flaky checkout integration test", url: "", repo: "acme/payments", author: "you", branch: "fix/flaky-checkout", isDraft: false, updatedAt: Date().addingTimeInterval(-7_200), relation: .authored, checks: .success, review: .approved, merge: .conflicting),
+            PullRequest(id: "a3", number: 96, title: "Wire up GraphQL pagination for search", url: "", repo: "acme/search-api", author: "you", branch: "feat/search-pagination", isDraft: true, updatedAt: Date().addingTimeInterval(-86_400), relation: .authored, checks: .pending, review: .none, merge: .mergeable),
         ]
         committed = [
-            PullRequest(id: "c1", number: 311, title: "Migrate auth service to typed config", url: "", repo: "acme/auth", author: "dana", isDraft: false, updatedAt: Date().addingTimeInterval(-3_600), relation: .committed, checks: .success, review: .approved, merge: .mergeable),
-            PullRequest(id: "c2", number: 58, title: "Refactor notification queue consumer", url: "", repo: "acme/notifications", author: "lee", isDraft: false, updatedAt: Date().addingTimeInterval(-172_800), relation: .committed, checks: .none, review: .none, merge: .mergeable),
+            PullRequest(id: "c1", number: 311, title: "Migrate auth service to typed config", url: "", repo: "acme/auth", author: "dana", branch: "refactor/typed-config", isDraft: false, updatedAt: Date().addingTimeInterval(-3_600), relation: .committed, checks: .success, review: .approved, merge: .mergeable),
+            PullRequest(id: "c2", number: 58, title: "Refactor notification queue consumer", url: "", repo: "acme/notifications", author: "lee", branch: "refactor/queue-consumer", isDraft: false, updatedAt: Date().addingTimeInterval(-172_800), relation: .committed, checks: .none, review: .none, merge: .mergeable),
         ]
         lastUpdated = Date().addingTimeInterval(-90)
     }

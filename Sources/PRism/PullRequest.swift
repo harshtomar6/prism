@@ -63,6 +63,7 @@ struct PullRequest: Identifiable, Hashable {
     let url: String
     let repo: String
     let author: String
+    let branch: String
     let isDraft: Bool
     let updatedAt: Date
     let relation: Relation
