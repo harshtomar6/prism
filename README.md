@@ -33,6 +33,7 @@ mentions, assignments-only) filtered out. Click any row to jump straight to it.
 - 🏷️ **Review state** — `APPROVED` / `CHANGES` badges, plus a merge-conflict warning
 - 🔵 **Unread dots** — highlights PRs with new activity since you last looked
 - 🗂️ **Open all** in the browser with one click
+- 📋 **Copy link** — hover any PR to copy its URL to the clipboard
 - 🔍 **Filters** — scope *Needs my review* by repository and by changed folder/path
 - 🔄 Auto-refreshes every 3 minutes, plus a manual refresh button
 - 🖱️ Click any PR to open it in your browser

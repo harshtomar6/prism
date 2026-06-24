@@ -303,40 +303,68 @@ private struct FilterListEditor: View {
 private struct PRRow: View {
     let pr: PullRequest
     @State private var hovering = false
+    @State private var copied = false
 
     var body: some View {
-        Button {
-            if let url = URL(string: pr.url) {
-                NSWorkspace.shared.open(url)
-            }
-        } label: {
-            HStack(alignment: .top, spacing: 8) {
-                leading
+        // The row opens via a tap gesture rather than a Button so the nested copy
+        // Button can consume its own tap without also opening the browser.
+        HStack(alignment: .top, spacing: 8) {
+            leading
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        if pr.isDraft {
-                            tag("DRAFT", color: .secondary)
-                        }
-                        Text(pr.title)
-                            .font(.system(size: 13))
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                        trailingBadges
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    if pr.isDraft {
+                        tag("DRAFT", color: .secondary)
                     }
-                    Text("\(pr.repo) #\(pr.number)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    Text(pr.title)
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    trailingBadges
+                    copyButton
                 }
+                Text("\(pr.repo) #\(pr.number)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .background(hovering ? Color.accentColor.opacity(0.15) : Color.clear)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(hovering ? Color.accentColor.opacity(0.15) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { openPR() }
         .onHover { hovering = $0 }
+    }
+
+    private func openPR() {
+        if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
+    }
+
+    /// Copy-link button, revealed on hover. Nested `.plain` button so its tap
+    /// does not also trigger the row's open-in-browser action.
+    @ViewBuilder
+    private var copyButton: some View {
+        if hovering || copied {
+            Button(action: copyLink) {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 11))
+                    .foregroundStyle(copied ? Color.green : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Copy PR link")
+        } else {
+            // Reserve width so the title doesn't shift when the button appears.
+            Color.clear.frame(width: 13, height: 1)
+        }
+    }
+
+    private func copyLink() {
+        guard !pr.url.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(pr.url, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
     }
 
     /// Unread dot + CI status indicator, vertically aligned with the title.
