@@ -53,9 +53,11 @@ struct MenuContent: View {
     private var list: some View {
         VStack(alignment: .leading, spacing: 12) {
             section(title: "Needs my review", prs: store.reviewRequested,
-                    filtered: settings.hasAnyReviewFilter)
-            section(title: "Created by me", prs: store.authored)
-            section(title: "Committed to", prs: store.committed)
+                    filtered: settings.hasAnyFilter)
+            section(title: "Created by me", prs: store.authored,
+                    filtered: settings.hasAnyFilter)
+            section(title: "Committed to", prs: store.committed,
+                    filtered: settings.hasAnyFilter)
         }
         .padding(.vertical, 8)
     }
@@ -188,7 +190,7 @@ struct SettingsPanel: View {
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: 16) {
-            Text("Show **Needs my review** PRs only when they match:")
+            Text("Show PRs (all sections) only when they match:")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -196,7 +198,7 @@ struct SettingsPanel: View {
                 title: "Repositories",
                 systemImage: "folder",
                 placeholder: "e.g. marketplace-backend",
-                items: settings.reviewRepoFilters,
+                items: settings.repoFilters,
                 interactive: interactive,
                 onAdd: settings.addRepo,
                 onRemove: settings.removeRepo
@@ -206,7 +208,7 @@ struct SettingsPanel: View {
                 title: "Changed folders / paths",
                 systemImage: "doc.text.magnifyingglass",
                 placeholder: "e.g. apps/ad-publishing",
-                items: settings.reviewPathFilters,
+                items: settings.pathFilters,
                 interactive: interactive,
                 onAdd: settings.addPath,
                 onRemove: settings.removePath
@@ -230,7 +232,7 @@ struct SettingsPanel: View {
     private var footnote: String {
         var parts = ["A PR must match every active filter type (repo AND path); within a type, any match counts."]
         if settings.hasPathFilters {
-            parts.append("Path filtering fetches each review PR's changed files.")
+            parts.append("Path filtering fetches each PR's changed files.")
         }
         return parts.joined(separator: " ")
     }

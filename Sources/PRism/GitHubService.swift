@@ -100,9 +100,9 @@ struct GitHubService {
 
     /// Fetch and classify all relevant open PRs, enriched with CI status.
     ///
-    /// When `reviewPathFiltering` is true, the changed file paths of review PRs
+    /// When `pathFiltering` is true, the changed file paths of every displayed PR
     /// are also fetched so the UI can filter by folder.
-    func fetchPullRequests(reviewPathFiltering: Bool = false) async throws -> [PullRequest] {
+    func fetchPullRequests(pathFiltering: Bool = false) async throws -> [PullRequest] {
         let ghPath = resolveGhPath() ?? "gh"
         let formatter = ISO8601DateFormatter()
 
@@ -160,12 +160,10 @@ struct GitHubService {
             return copy
         }
 
-        // D. (optional) Fetch changed paths for review PRs to support folder filtering.
-        if reviewPathFiltering {
-            let reviewIDs = results.filter { $0.relation == .reviewRequested }.map(\.id)
-            let paths = try await fetchChangedPaths(ghPath: ghPath, ids: reviewIDs)
+        // D. (optional) Fetch changed paths for all displayed PRs for folder filtering.
+        if pathFiltering {
+            let paths = try await fetchChangedPaths(ghPath: ghPath, ids: results.map(\.id))
             results = results.map { pr in
-                guard pr.relation == .reviewRequested else { return pr }
                 var copy = pr
                 copy.changedPaths = paths[pr.id] ?? []
                 return copy

@@ -18,10 +18,12 @@ final class PRStore: ObservableObject {
     private var timer: Timer?
     private var started = false
 
-    /// Unfiltered review PRs; `reviewRequested` is the filtered view of this.
+    /// Unfiltered PRs; the published arrays are the filtered views of these.
     private var rawReview: [PullRequest] = []
-    /// Whether the last fetch included changed-path data for review PRs.
-    private var reviewFilesLoaded = false
+    private var rawAuthored: [PullRequest] = []
+    private var rawCommitted: [PullRequest] = []
+    /// Whether the last fetch included changed-path data (needed for path filters).
+    private var filesLoaded = false
 
     private var settings: AppSettings?
     private var cancellables = Set<AnyCancellable>()
@@ -79,31 +81,35 @@ final class PRStore: ObservableObject {
 
         let needFiles = settings?.hasPathFilters ?? false
         do {
-            let prs = markUnread(try await service.fetchPullRequests(reviewPathFiltering: needFiles))
-            reviewFilesLoaded = needFiles
+            let prs = markUnread(try await service.fetchPullRequests(pathFiltering: needFiles))
+            filesLoaded = needFiles
             rawReview = prs.filter { $0.relation == .reviewRequested }
-            authored = prs.filter { $0.relation == .authored }
-            committed = prs.filter { $0.relation == .committed }
-            applyReviewFilter()
+            rawAuthored = prs.filter { $0.relation == .authored }
+            rawCommitted = prs.filter { $0.relation == .committed }
+            applyFilters()
             lastUpdated = Date()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    /// Re-derive the visible review list from `rawReview` using current settings.
-    private func applyReviewFilter() {
-        if let settings {
-            reviewRequested = rawReview.filter(settings.keepReview)
-        } else {
+    /// Re-derive the visible lists from the raw lists using current settings.
+    private func applyFilters() {
+        guard let settings else {
             reviewRequested = rawReview
+            authored = rawAuthored
+            committed = rawCommitted
+            return
         }
+        reviewRequested = rawReview.filter(settings.keep)
+        authored = rawAuthored.filter(settings.keep)
+        committed = rawCommitted.filter(settings.keep)
     }
 
     /// Settings changed: re-filter immediately; refetch if path data is now needed.
     private func onSettingsChanged() {
-        applyReviewFilter()
-        if (settings?.hasPathFilters ?? false) && !reviewFilesLoaded {
+        applyFilters()
+        if (settings?.hasPathFilters ?? false) && !filesLoaded {
             Task { await refresh() }
         }
     }
