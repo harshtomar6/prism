@@ -354,6 +354,7 @@ private struct PRRow: View {
 
     @ViewBuilder
     private func copyIcon(_ target: CopyTarget, symbol: String, help: String, value: String) -> some View {
+        // Render nothing when idle so the title can use the full available width.
         if (hovering || copied == target) && !value.isEmpty {
             Button { copy(value, as: target) } label: {
                 Image(systemName: copied == target ? "checkmark" : symbol)
@@ -362,9 +363,6 @@ private struct PRRow: View {
             }
             .buttonStyle(.plain)
             .help(help)
-        } else {
-            // Reserve width so the title doesn't shift when the button appears.
-            Color.clear.frame(width: 13, height: 1)
         }
     }
 
